@@ -1,0 +1,7 @@
+*.pt
+chkpts/
+figs/
+logs/
+
+__pycache__
+.idea

@@ -22,15 +22,15 @@ class PartialBatchNorm2d(nn.Module):
 
 
 class BatchDropout(nn.Module):
-    def __init__(self, drop_prob, return_none=False):
+    def __init__(self, drop_rate, return_none=False):
         super(BatchDropout, self).__init__()
-        self.drop_prob = drop_prob
+        self.drop_rate = drop_rate
         self.return_none = return_none
 
     def forward(self, x):
         if self.training:
             u = random.random()
-            if u < self.drop_prob:
+            if u < self.drop_rate:
                 if self.return_none:
                     x = None
                 else:

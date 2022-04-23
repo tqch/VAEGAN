@@ -12,8 +12,9 @@ if __name__ == "__main__":
     import matplotlib as mpl
     mpl.rcParams["figure.dpi"] = 144
 
-    from uvae_fd import DeblurUVAE
-    from datasets import get_dataloader
+    from uvae import DeblurUVAE
+    from uvae_v2 import UVAE
+    from datasets import get_dataloader, DATA_INFO
 
     from datetime import datetime
     from utils import dict2str
@@ -30,14 +31,17 @@ if __name__ == "__main__":
     valloader = get_dataloader(
         dataset, batch_size=512, split="val", val_size=0.1, random_seed=seed, root=root)
 
-    latent_dim = 64
-    skip_dims = [1, 1, 1]
+
+    res = DATA_INFO[dataset]["resolution"][0]
+    in_chans = DATA_INFO[dataset]["channels"]
+    latent_dims = [32, 32, 64, 64]
+    skip_dims = [16, 16, 16]
     transform_blur = GaussianBlur(kernel_size=7, sigma=3.)
     alpha = 10
 
     hps = {
-        "latent_dim": latent_dim,
-        "alpha": alpha,
+        "latent_dims": latent_dims,
+        # "alpha": alpha,
         "skip_dims": skip_dims
     }
     hps_info = dict2str(hps)
@@ -46,21 +50,28 @@ if __name__ == "__main__":
     if not os.path.exists(chkpt_dir):
         os.makedirs(chkpt_dir)
 
-    model = DeblurUVAE(latent_dim=latent_dim, skip_dims=skip_dims,
-                       transform=transform_blur, alpha=alpha)
+    model = UVAE(in_chans, latent_dims, skip_dims, res)
+    # model = DeblurUVAE(latent_dim=latent_dim, skip_dims=skip_dims,
+    #                    transform=transform_blur, alpha=alpha)
     model.to(device)
 
     model_name = model.__class__.__name__.lower()
 
     optimizer = Adam(model.parameters(), lr=0.001)
 
-    n_epochs = 30
-
     n_display = 16
     x_val, _ = next(iter(valloader))
     # transform_test = GaussianBlur(kernel_size=7, sigma=3.)
     x_val = x_val[:n_display]
-    x_corrupted = transform_blur(x_val)
+
+    task = "generation"
+    image_tag = "random_samples"
+    if task == "deblur":
+        x_corrupted = transform_blur(x_val)
+        image_tag = "deblurred_examples"
+    elif task == "reconstruction":
+        image_tag = "reconstructed_examples"
+
 
     fig_dir = "./figs"
     if not os.path.exists(fig_dir):
@@ -72,6 +83,7 @@ if __name__ == "__main__":
         log_dir, f"{model_name}_{timestamp}" + "_" + hps_info)
     writer = SummaryWriter(log_path)
 
+    n_epochs = 30
     best_val_loss = np.inf
     for e in range(n_epochs):
         with tqdm(trainloader, desc=f"{e + 1}/{n_epochs} epochs") as t:
@@ -114,16 +126,24 @@ if __name__ == "__main__":
                                 f"{dataset}_{model_name}_{alpha:.0e}fd_{e+1}.pt"
                             )
                             torch.save(model.state_dict(), chkpt_path)
-                        # recover from corrupted validation data
-                        x_ = model.reconst(x_corrupted.to(device)).detach().cpu()
-                    xx_ = torch.cat([x_corrupted, x_], dim=0)
+                        if task == "generation":
+                            xx_ = model.sample_x(n_display).detach().cpu()
+                        else:
+                            xx_ = torch.cat([x_corrupted, x_], dim=0)
+                            if task == "deblur":
+                                # recover from corrupted validation data
+                                x_ = model.reconst(x_corrupted.to(device)).detach().cpu()
+                            elif task == "reconstruction":
+                                x_ = model.reconst(x_val.to(device)).detach().cpu()
+
                     # convert to 2d numpy array in the order (H, W, C)
                     npimg = make_grid(xx_, nrow=8).permute(1, 2, 0).numpy()
                     img_format = "HWC"
                     if npimg.shape[2] == 1:
                         img_format = "HW"
                         npimg = npimg.squeeze(axis=2)
-                    writer.add_image("deblurred_examples", npimg, e+1, dataformats=img_format)
+                    writer.add_image(image_tag, npimg, e+1, dataformats=img_format)
+
                     plt.imsave(os.path.join(
                         fig_dir,
                         f"{dataset}_{model_name}_{alpha:.0e}fd_{e+1}.jpg"

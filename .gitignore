@@ -3,6 +3,7 @@ chkpts/
 figs/
 logs/
 archive/
+precomputed_stats/
 
 __pycache__/
 .idea/

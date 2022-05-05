@@ -4,6 +4,12 @@ from torchvision import transforms, datasets
 from torch.utils.data import DataLoader, SubsetRandomSampler, Sampler
 
 sampler = SubsetRandomSampler
+
+
+def crop_celeba(img):
+    return transforms.functional.crop(img, top=40, left=15, height=148, width=148)
+
+
 DATA_INFO = {
     "mnist": {
         "data": datasets.MNIST,
@@ -12,6 +18,32 @@ DATA_INFO = {
         "transform": transforms.ToTensor(),
         "train_size": 60000,
         "test_size": 10000
+    },
+    "cifar10": {
+        "data": datasets.CIFAR10,
+        "resolution": (32, 32),
+        "channels": 3,
+        "transform": transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            # transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+        ]),
+        "train_size": 50000,
+        "test_size": 10000
+    },
+    "celeba": {
+        "data": datasets.CelebA,
+        "resolution": (64, 64),
+        "channels": 3,
+        "transform": transforms.Compose([
+            crop_celeba,
+            transforms.Resize((64, 64)),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor()
+        ]),
+        "train": 162770,
+        "test": 19962,
+        "validation": 19867
     }
 }
 
@@ -41,8 +73,12 @@ class SubsetSequentialSampler(Sampler):
 
 
 def get_dataloader(dataset, batch_size, split, val_size=0.1, random_seed=None, root=ROOT):
-    if dataset == "mnist":
-        transform = DATA_INFO[dataset]["transform"]
+    transform = DATA_INFO[dataset]["transform"]
+    if dataset == "celeba":
+        data = DATA_INFO[dataset]["data"](
+                root=root, train=split, download=False, transform=transform)
+        dataloader = DataLoader(data, batch_size=batch_size)
+    else:
         if split == "test":
             data = DATA_INFO[dataset]["data"](
                 root=root, train=False, download=False, transform=transform)

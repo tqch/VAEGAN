@@ -36,3 +36,63 @@ class BatchDropout(nn.Module):
                 else:
                     x = x.zero_()
         return x
+
+
+class BinLoss(nn.Module):
+    def __init__(self, total_trials, reduction="mean"):
+        super(BinLoss, self).__init__()
+        self.total_trials = total_trials
+        self.log_factorial = lambda n: torch.lgamma(n + 1)
+        self.lfn = self.log_factorial(torch.tensor(total_trials))
+        self.bce_loss = nn.BCELoss(reduction="none")
+        self.reduction = reduction
+
+    def forward(self, probs, obs):
+        mles = obs / self.total_trials
+        # calculate log factorials
+        lfobs = self.log_factorial(obs)
+        lfobsc = self.log_factorial(self.total_trials-obs)
+        bce_loss = self.bce_loss(probs, mles)
+        bin_loss = lfobs + lfobsc - self.lfn + self.total_trials * bce_loss
+        if self.reduction == "mean":
+            bin_loss = bin_loss.mean()
+        if self.reduction == "sum":
+            bin_loss = bin_loss.sum()
+        return bin_loss
+
+
+class BinWithMLELoss(nn.Module):
+    def __init__(self, total_trials, reduction="mean"):
+        super(BinLoss, self).__init__()
+        self.total_trials = total_trials
+        self.log_factorial = lambda n: torch.lgamma(n + 1)
+        self.lfn = self.log_factorial(torch.tensor(total_trials))
+        self.bce_loss = nn.BCELoss(reduction="none")
+        self.reduction = reduction
+
+    def forward(self, probs, mles):
+        obs = (mles * self.total_trials).int()
+        # calculate log factorials
+        lfobs = self.log_factorial(obs)
+        lfobsc = self.log_factorial(self.total_trials-obs)
+        bce_loss = self.bce_loss(probs, mles)
+        bin_loss = lfobs + lfobsc - self.lfn + self.total_trials * bce_loss
+        if self.reduction == "mean":
+            bin_loss = bin_loss.mean()
+        if self.reduction == "sum":
+            bin_loss = bin_loss.sum()
+        return bin_loss
+
+
+class Reshape(nn.Module):
+    # Reshape module
+    def __init__(self, dims):
+        super(Reshape, self).__init__()
+        self.dims = dims
+
+    def forward(self, x):
+        return x.reshape(*self.dims)
+
+    def extra_repr(self):
+        s = "{dims}"
+        return s.format(**self.__dict__)

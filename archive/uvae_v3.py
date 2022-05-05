@@ -23,7 +23,7 @@ def kullback_leibler(mean_1, mean_2, logvar_1, logvar_2):
 
 
 class ConvBlock(nn.Module):
-    def __init__(self, in_chans, out_chans, stride=2, final=False):
+    def __init__(self, in_chans, out_chans, stride=1, final=False):
         super(ConvBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_chans)
         self.conv1 = nn.Conv2d(in_chans, out_chans, 3, stride, 1, bias=False)
@@ -79,22 +79,32 @@ class Passage(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, in_chans, latent_dims):
+    def __init__(self, in_chans, latent_dims, layer_configs):
         super(Encoder, self).__init__()
         self.in_chans = in_chans
         self.latent_dims = latent_dims
+        self.layer_configs = layer_configs
         self.in_conv = nn.Conv2d(in_chans, latent_dims[0], 3, 1, 1, bias=False)
-        self.down_blocks = nn.ModuleList([ConvBlock(latent_dims[0], latent_dims[0])])
+        self.downs = nn.ModuleList([self.make_layer(latent_dims[0], latent_dims[0], layer_configs[0])])
         self.receptions = nn.ModuleList([Passage(2 * latent_dims[0], 2 * latent_dims[0])])
+        assert len(latent_dims) == len(layer_configs)
         for i in range(len(latent_dims) - 2):
-            self.down_blocks.append(ConvBlock(latent_dims[i], latent_dims[i + 1]))
+            self.downs.append(self.make_layer(
+                latent_dims[i], latent_dims[i + 1], layer_configs[i + 1]))
             self.receptions.append(Passage(2 * latent_dims[i + 1], 2 * latent_dims[i + 1]))
-        self.final_block = nn.Sequential(
-            nn.BatchNorm2d(latent_dims[-2]),
-            nn.ReLU(),
-            nn.Conv2d(latent_dims[-2], 2 * latent_dims[-1], 3, 1, 1),
-            nn.AdaptiveAvgPool2d((1, 1))
-        )
+        self.final_layer = self.make_layer(
+            latent_dims[-2], 2 * latent_dims[-1], layer_configs[-1], final=True)
+        self.avg_pool = nn.AdaptiveAvgPool2d((1,1))
+
+    @staticmethod
+    def make_layer(in_chans, out_chans, num_blocks, final=False):
+        if num_blocks == 1:
+            blocks = [ConvBlock(in_chans, out_chans, stride=2, final=final)]
+        else:
+            blocks = [ConvBlock(in_chans, out_chans, stride=2)]
+            blocks.extend([ConvBlock(out_chans, out_chans) for _ in range(num_blocks-2)])
+            blocks.append(ConvBlock(out_chans, out_chans, final=True))
+        return nn.Sequential(*blocks)
 
     def respond(self, i, site, feedback):
         rcpt = self.receptions[i]
@@ -110,34 +120,57 @@ class Encoder(nn.Module):
     def forward(self, x):
         x = self.in_conv(x)
         sites = []
-        for block in self.down_blocks:
-            x = block(x)
+        for layer in self.downs:
+            x = layer(x)
             sites.append(x)
-        mom = self.final_block(x)
+        x = self.final_layer(x)
+        mom = self.avg_pool(x)
         return mom, sites
 
 
 class Decoder(nn.Module):
-    def __init__(self, out_chans, latent_dims, out_size, upsampling_sizes, drop_rate):
+    def __init__(self, out_chans, latent_dims, layer_configs, out_size, upsampling_sizes, drop_rate):
         super(Decoder, self).__init__()
         self.out_chans = out_chans
         self.latent_dims = latent_dims
+        self.layer_configs = layer_configs
         self.out_size = out_size
         self.upsampling_sizes = upsampling_sizes
         self.drop_rate = drop_rate
-        self.upsample = nn.ConvTranspose2d(latent_dims[-1], latent_dims[-2], upsampling_sizes[-1], 1)
+        self.upsample = nn.Sequential(
+            nn.ConvTranspose2d(latent_dims[-1], latent_dims[-2], upsampling_sizes[-1], 1),
+            *[ConvBlock(latent_dims[-2], latent_dims[-2]) for _ in range(layer_configs[-1] - 1)]
+        )
         self.bootstraps = nn.ModuleList([Passage(latent_dims[-2], 2 * latent_dims[-2])])
         self.tanh_scales = nn.ParameterList([nn.Parameter(torch.zeros(1, latent_dims[-2], 1, 1))])
-        self.up_blocks = nn.ModuleList()
-        assert (len(latent_dims) - 1) == len(upsampling_sizes)
+        self.ups = nn.ModuleList()
+        assert len(latent_dims) == len(layer_configs) == (len(upsampling_sizes) + 1)
         for i in range(len(latent_dims) - 2, 0, -1):
-            self.up_blocks.append(DeconvBlock(
-                latent_dims[i], latent_dims[i - 1], odd=upsampling_sizes[i - 1] % 2 != 0))
+            self.ups.append(self.make_layer(
+                latent_dims[i], latent_dims[i - 1],
+                odd=upsampling_sizes[i - 1] % 2 != 0,
+                num_blocks=layer_configs[i]
+            ))
             self.bootstraps.append(Passage(latent_dims[i - 1], 2 * latent_dims[i - 1]))
             self.tanh_scales.append(nn.Parameter(torch.zeros(1, latent_dims[i - 1], 1, 1)))
-        self.out_conv = DeconvBlock(
-            latent_dims[0], out_chans, odd=out_size % 2 != 0, final=True)
+        num_blocks = layer_configs[0]
+        if num_blocks == 1:
+            self.out_conv = DeconvBlock(
+                latent_dims[0], out_chans, odd=out_size % 2 != 0, final=True)
+        else:
+            self.out_conv = nn.Sequential(
+                DeconvBlock(latent_dims[0], out_chans, odd=out_size % 2 != 0),
+                *[ConvBlock(out_chans, out_chans) for _ in range(num_blocks-2)],
+                ConvBlock(out_chans, out_chans, final=True)
+            )
         self.drop_out = BatchDropout(drop_rate=drop_rate)
+
+    @staticmethod
+    def make_layer(in_chans, out_chans, odd, num_blocks):
+        return nn.Sequential(
+            DeconvBlock(in_chans, out_chans, odd),
+            *[ConvBlock(out_chans, out_chans) for _ in range(num_blocks - 1)]
+        )
 
     def bootstrap(self, i, x, sample=True):
         mom = self.bootstraps[i](x)
@@ -148,7 +181,7 @@ class Decoder(nn.Module):
 
     def feedback(self, i, x, response):
         if i != len(self.latent_dims) - 2:
-            moveup = self.up_blocks[i]
+            moveup = self.ups[i]
         else:
             moveup = self.out_conv
         response = self.tanh_scales[i] * torch.tanh(response)
@@ -163,10 +196,8 @@ class Decoder(nn.Module):
 
     def forward(self, z):
         x = self.upsample(z)
-        moms = []
         for i in range(len(self.latent_dims)-1):
             response, mom = self.bootstrap(i, x)
-            moms.append(mom)
             x = self.feedback(i, x, response)
         return x
 
@@ -177,11 +208,14 @@ class UVAE(nn.Module):
             self,
             in_chans,
             latent_dims,
+            layer_configs,
             image_res,
-            response_drop_rate=0.5
+            response_drop_rate=0.5,
+            reconst_loss=nn.MSELoss(reduction="sum")
     ):
         super(UVAE, self).__init__()
         self.latent_dims = latent_dims
+        self.layer_configs = layer_configs
         self.image_res = image_res
         downsampling_sizes = []
         for i in range(len(latent_dims)-1):
@@ -190,11 +224,12 @@ class UVAE(nn.Module):
             sz = math.floor((sz + 1) / 2)
             downsampling_sizes.append(sz)
         self.downsampling_sizes = downsampling_sizes
-        self.encoder = Encoder(in_chans, latent_dims)
+        self.encoder = Encoder(in_chans, latent_dims, layer_configs)
         self.decoder = Decoder(
-            in_chans, latent_dims, out_size=image_res,
+            in_chans, latent_dims, layer_configs, out_size=image_res,
             upsampling_sizes=downsampling_sizes, drop_rate=response_drop_rate)
-        self.bce_loss = nn.BCEWithLogitsLoss(reduction="sum")
+        # self.bce_loss = nn.BCEWithLogitsLoss(reduction="sum")
+        self.reconst_loss = reconst_loss
 
     def forward(self, x):
         mom, sites = self.encode(x)
@@ -206,7 +241,9 @@ class UVAE(nn.Module):
             mean, logvar = mom.chunk(2, dim=1)
             mean_, logvar_ = mom_.chunk(2, dim=1)
             kld += kullback_leibler(mean, mean_, logvar, logvar_)
-        reconst_loss = self.bce_loss(x_, x)
+        # Sigmoid activation
+        x_ = torch.sigmoid(x_)
+        reconst_loss = self.reconst_loss(x_, x)
         return kld + reconst_loss
 
     def sample_z(self, mom):
@@ -252,14 +289,21 @@ class UVAE(nn.Module):
 
 
 if __name__ == "__main__":
-    res = 28
+    image_res = 28
     in_chans = 1
     latent_dims = [32, 32, 64, 64]
+    layer_configs = [2, 2, 2, 2]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = UVAE(in_chans, latent_dims, res)
+    model = UVAE(in_chans, latent_dims, layer_configs, image_res)
     print(model)
     model.to(device)
     x = torch.randn(16, 1, 28, 28).to(device)
-    # model(x)
-    z = torch.randn(16, 64, 1, 1).to(device)
-    model.decode(z)
+    model(x)
+    # z = torch.randn(16, 64, 1, 1).to(device)
+    # model.decode(z)
+
+    # num_params = 0
+    # for p in model.parameters():
+    #     if p.requires_grad:
+    #         num_params += p.numel()
+    # print(num_params)

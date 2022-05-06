@@ -1,8 +1,6 @@
-## UNet-Based Deblurring Variational Auto-Encoder with Frechet regularization
+## VAEGAN: Towards Bridging the Gap between Diversity and Fidelity
 
 This repository contains the code of the course project for SDS 383D - 2022 Spring.
-
-More to come...
 
 
 

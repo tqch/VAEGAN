@@ -76,7 +76,7 @@ def get_dataloader(dataset, batch_size, split, val_size=0.1, random_seed=None, r
     transform = DATA_INFO[dataset]["transform"]
     if dataset == "celeba":
         data = DATA_INFO[dataset]["data"](
-                root=root, train=split, download=False, transform=transform)
+                root=root, split=split, download=False, transform=transform)
         dataloader = DataLoader(data, batch_size=batch_size)
     else:
         if split == "test":

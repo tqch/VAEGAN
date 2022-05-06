@@ -93,7 +93,7 @@ class Trainer:
         if self.model_name == "vae":
             self.running_stats.update(count, **self.vae_train_step(x))
         elif self.model_name == "dcgan":
-            self.runnning_stats.update(count, **self.gan_train_step(x))
+            self.running_stats.update(count, **self.gan_train_step(x))
         elif self.model_name == "vaegan":
             self.running_stats.update(count, **self.vaegan_train_step(x))
         else:
@@ -158,9 +158,9 @@ if __name__ == "__main__":
     batch_size = args.batch_size
 
     trainloader = get_dataloader(
-        dataset, batch_size=batch_size, split="train", val_size=0.1, random_seed=seed, root=root)
+        dataset, batch_size=batch_size, split="train", val_size=0.1, random_seed=seed, root=root, pin_memory=True)
     valloader = get_dataloader(
-        dataset, batch_size=batch_size, split="val", val_size=0.1, random_seed=seed, root=root)
+        dataset, batch_size=batch_size, split="valid", val_size=0.1, random_seed=seed, root=root, pin_memory=True)
 
     config_path = os.path.join(args.config_dir, args.model + ".json")
     with open(config_path, "r") as f:
@@ -210,12 +210,15 @@ if __name__ == "__main__":
     transform_blur = GaussianBlur(kernel_size=7, sigma=3.)
 
     task = args.task
-    image_tag = "random_samples"
-    if task == "deblur":
+    if task == "generation":
+        image_tag = "random_samples"
+    elif task == "deblur":
         x_corrupted = transform_blur(x_val)
         image_tag = "deblurred_examples"
     elif task == "reconstruction":
         image_tag = "reconstructed_examples"
+    else:
+        raise NotImplementedError
 
     hps = {
         "task": task,
@@ -274,31 +277,32 @@ if __name__ == "__main__":
 
                     gen_mean, gen_var = istats.get_statistics()
                     train_fid = fid(gen_mean, target_mean, gen_var, target_var)
+                    writer.add_scalar("fid", train_fid, e + 1)
+                    extra_stats = [("train_fid", train_fid)]
 
-                    eval_count = 0
-                    for x, _ in trainloader:
-                        if eval_count >= max_eval_count:
-                            break
-                        with torch.no_grad():
-                            x_ = model.reconst(x.to(device)).detach().cpu()
-                        psnr((x_ - x).numpy())
-                        eval_count += x.shape[0]
-
-                    train_psnr = psnr.get_metrics()
+                    if "vae" in model_name:
+                        eval_count = 0
+                        for x, _ in trainloader:
+                            if eval_count >= max_eval_count:
+                                break
+                            with torch.no_grad():
+                                x_ = model.reconst(x.to(device)).detach().cpu()
+                            psnr((x_ - x).numpy())
+                            eval_count += x.shape[0]
+                        train_psnr = psnr.get_metrics()
+                        writer.add_scalar("psnr", train_psnr, e + 1)
+                        extra_stats.append(("train_psnr", train_psnr))
 
                     training_stats = trainer.current_stats()
-                    training_stats.update({
-                        "train_fid": train_fid,
-                        "train_psnr": train_psnr
-                    })
+                    training_stats.update(dict(extra_stats))
                     t.set_postfix(training_stats)
+
                     if "vae" in model_name:
                         writer.add_scalar("elbo", -training_stats["train_vae_loss"], e + 1)
                     if "gan" in model_name:
                         writer.add_scalar("dis_loss", training_stats["train_dis_loss"], e + 1)
                         writer.add_scalar("gen_loss", training_stats["train_gen_loss"], e + 1)
-                    writer.add_scalar("fid", train_fid, e + 1)
-                    writer.add_scalar("psnr", train_psnr, e + 1)
+
                     if train_fid < best_fid:
                         best_fid = train_fid
                         trainer.checkpoint(chkpt_path, fid=best_fid, epoch=e+1)

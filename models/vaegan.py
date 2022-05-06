@@ -145,7 +145,7 @@ class Decoder(nn.Module):
             x = layer(x)
         x = self.crude(x)
         out_crude = torch.sigmoid(x)
-        out_refined = torch.sigmoid(self.refine(x))  # stop gradient
+        out_refined = torch.sigmoid(self.refine(x))
         return out_crude, out_refined
 
 

@@ -72,25 +72,39 @@ class SubsetSequentialSampler(Sampler):
         return len(self.indices)
 
 
-def get_dataloader(dataset, batch_size, split, val_size=0.1, random_seed=None, root=ROOT):
+def get_dataloader(
+        dataset,
+        batch_size,
+        split,
+        val_size=0.1,
+        random_seed=None,
+        root=ROOT,
+        pin_memory=False,
+        num_workers=os.cpu_count()
+):
     transform = DATA_INFO[dataset]["transform"]
+    dataloader_configs = {
+        "batch_size": batch_size,
+        "pin_memory": pin_memory,
+        "num_workers": num_workers
+    }
     if dataset == "celeba":
         data = DATA_INFO[dataset]["data"](
                 root=root, split=split, download=False, transform=transform)
-        dataloader = DataLoader(data, batch_size=batch_size)
+        dataloader = DataLoader(data, **dataloader_configs)
     else:
         if split == "test":
             data = DATA_INFO[dataset]["data"](
                 root=root, train=False, download=False, transform=transform)
-            dataloader = DataLoader(data, batch_size=batch_size)
+            dataloader = DataLoader(data, **dataloader_configs)
         else:
             data = DATA_INFO[dataset]["data"](
                 root=root, train=True, download=False, transform=transform)
             train_inds, val_inds = train_val_split(dataset, val_size, random_seed)
             if split == "train":
                 sampler = SubsetRandomSampler(train_inds)
-            elif split == "val":
+            elif split == "valid":
                 sampler = SubsetSequentialSampler(val_inds)  # trivial sequential sampler
             # no need of shuffling when using customized sampler
-            dataloader = DataLoader(data, batch_size=batch_size, sampler=sampler)
+            dataloader = DataLoader(data, sampler=sampler, **dataloader_configs)
     return dataloader

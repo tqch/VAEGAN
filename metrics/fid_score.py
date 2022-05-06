@@ -149,6 +149,8 @@ PRE_COMPUTED_LIST = {
 
 
 def get_precomputed(dataset, download_dir="precomputed_stats"):
+    if dataset == "celeba":
+        dataset = "cropped_celeba"
     url = PRE_COMPUTED_LIST[dataset]
     filename = os.path.basename(url)
     if download_dir is None:

@@ -12,9 +12,9 @@ class Discriminator(nn.Module):
             nn.Conv2d(in_chan, hidden_dims[0], 4, 2, 1),
             nn.LeakyReLU(0.2, inplace=True)
         )
-        self.conv_layers = nn.ModuleList()
+        self.mid_layers = nn.ModuleList()
         for i in range(len(hidden_dims) - 1):
-            self.conv_layers.append(self.make_layer(hidden_dims[i], hidden_dims[i + 1]))
+            self.mid_layers.append(self.make_mid_layer(hidden_dims[i], hidden_dims[i + 1]))
         multiplier = image_res // 16
         self.out_layer = nn.Sequential(
             nn.Flatten(start_dim=1),
@@ -22,7 +22,7 @@ class Discriminator(nn.Module):
             nn.Sigmoid()
         )
 
-    def make_layer(self, in_chan, out_chan):
+    def make_mid_layer(self, in_chan, out_chan):
         return nn.Sequential(
             nn.Conv2d(in_chan, out_chan, 4, 2, 1, bias=False),
             nn.BatchNorm2d(out_chan),
@@ -31,7 +31,7 @@ class Discriminator(nn.Module):
 
     def forward(self, x):
         x = self.in_layer(x)
-        for layer in self.conv_layers:
+        for layer in self.mid_layers:
             x = layer(x)
         x = self.out_layer(x)
         return x
@@ -46,18 +46,18 @@ class Generator(nn.Module):
         multiplier = image_res // 16
         self.in_layer = nn.Sequential(
             nn.Linear(latent_dim, multiplier ** 2 * hidden_dims[0], bias=False),
-            Reshape((-1, hidden_dims[0], 2, 2)),
+            Reshape((-1, hidden_dims[0], multiplier, multiplier)),
             nn.BatchNorm2d(hidden_dims[0]),
             nn.ReLU(inplace=True)
         )
-        self.deconv_layers = nn.ModuleList()
+        self.mid_layers = nn.ModuleList()
         for i in range(len(hidden_dims) - 1):
-            self.deconv_layers.append(self.make_layer(
+            self.mid_layers.append(self.make_mid_layer(
                 hidden_dims[i], hidden_dims[i + 1]))
         self.out_layer = nn.ConvTranspose2d(hidden_dims[-1], out_chan, 4, 2, 1)
 
     @staticmethod
-    def make_layer(in_chan, out_chan):
+    def make_mid_layer(in_chan, out_chan):
         return nn.Sequential(
             nn.ConvTranspose2d(in_chan, out_chan, 4, 2, 1, bias=False),
             nn.BatchNorm2d(out_chan),
@@ -66,7 +66,7 @@ class Generator(nn.Module):
 
     def forward(self, z):
         x = self.in_layer(z)
-        for layer in self.deconv_layers:
+        for layer in self.mid_layers:
             x = layer(x)
         x = torch.sigmoid(self.out_layer(x))
         return x
@@ -98,17 +98,15 @@ class DCGAN(nn.Module):
             # artificial labels
             y = torch.ones_like(ds)
             y_ = torch.zeros_like(ds_)
-            gan_loss = self.bce_loss(ds, y)
-            gan_loss += self.bce_loss(ds_, y_)
-            return gan_loss / 2
+            dis_loss = self.bce_loss(ds, y)
+            dis_loss += self.bce_loss(ds_, y_)
+            return dis_loss / 2
         else:
             x_ = self.sample_x(n)
             ds_ = self.discriminator(x_)
             y_ = torch.ones_like(ds_)
-            # reduce gan loss w.r.t. the generator
-            # the effect is to increase discriminator scores of fake examples
-            gan_loss = self.bce_loss(ds_, y_)
-            return gan_loss
+            gen_loss = self.bce_loss(ds_, y_)
+            return gen_loss
 
     def sample_x(self, n):
         z = self.sample_noise(n)

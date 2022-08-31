@@ -1,260 +1,159 @@
+import os
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from modules import Reshape
+from . import resnet
+from . import dcgan
+from functools import partial
+
+backbone = {"resnet": resnet, "dcgan": dcgan}[os.environ.get("BACKBONE", "dcgan")]
+
+if backbone.__name__ == "models.resnet":
+    class _Encoder(backbone.Encoder):
+        block = partial(backbone.ResidualBlock, resample="downsample", normalize=False)
+else:
+    _Encoder = backbone.Encoder
+
+from .unet import UNet
 
 
-class Encoder(nn.Module):
-    def __init__(self, in_chan, latent_dim, hidden_dims, image_res):
-        super(Encoder, self).__init__()
-        self.in_chan = in_chan
-        self.latent_dim = latent_dim
-        self.hidden_dims = hidden_dims
-        self.image_res = image_res
-
-        self.in_layer = nn.Sequential(
-            nn.Conv2d(in_chan, hidden_dims[0], 4, 2, 1),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.mid_layers = nn.ModuleList()
-        for i in range(len(hidden_dims) - 1):
-            self.mid_layers.append(
-                self.make_mid_layer(hidden_dims[i], hidden_dims[i + 1]))
-        self.out_layer = self.make_out_layer()
-
-    def make_out_layer(self):
-        multiplier = self.image_res // 16
-        return nn.Sequential(
-            nn.Flatten(start_dim=1),
-            nn.Linear(multiplier ** 2 * self.hidden_dims[-1], 2 * self.latent_dim)
-        )
-
-    def make_mid_layer(self, in_chan, out_chan):
-        return nn.Sequential(
-            nn.Conv2d(in_chan, out_chan, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(out_chan),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-
-    def forward(self, x):
-        x = self.in_layer(x)
-        for layer in self.mid_layers:
-            x = layer(x)
-        x = self.out_layer(x)
-        return x
-
-
-class Discriminator(Encoder):
-    def __init__(self, in_chan, hidden_dims, image_res):
-        super(Discriminator, self).__init__(
-            in_chan, latent_dim=1, hidden_dims=hidden_dims, image_res=image_res)
-
-    def make_out_layer(self):
-        multiplier = self.image_res // 16
-        return nn.Sequential(
-            nn.Flatten(start_dim=1),
-            nn.Linear(multiplier ** 2 * self.hidden_dims[-1], 1)
-        )
-
-
-class ResidualBlock(nn.Module):
-    def __init__(self, in_chan, mid_chan, out_chan, stride=1, bias=False):
-        super(ResidualBlock, self).__init__()
-        self.in_bn = nn.BatchNorm2d(in_chan)
-        self.in_conv = nn.Conv2d(in_chan, mid_chan, 3, stride, 1, bias=False)
-        self.mid_bn = nn.BatchNorm2d(mid_chan)
-        self.mid_conv = nn.Conv2d(mid_chan, mid_chan, 3, 1, 1, bias=False)
-        self.out_bn = nn.BatchNorm2d(mid_chan)
-        self.out_conv = nn.Conv2d(mid_chan, out_chan, 3, 1, 1, bias=bias)
-        if in_chan != out_chan or stride != 1:
-            self.skip = nn.Conv2d(in_chan, out_chan, 1, stride, 0, bias=bias)
-        else:
-            self.skip = nn.Identity()
-
-    def forward(self, x):
-        skip = self.skip(x)
-        x = self.in_conv(F.relu(self.in_bn(x), inplace=True))
-        x = self.mid_conv(F.relu(self.mid_bn(x), inplace=True))
-        x = self.out_conv(F.relu(self.out_bn(x), inplace=True))
-        return x + skip
-
-
-class Decoder(nn.Module):
+class Decoder(backbone.Decoder):
     def __init__(
             self,
-            out_chan,
+            out_ch,
+            base_ch,
             latent_dim,
-            hidden_dims,
+            reconst_ch,
             image_res,
-            refine_mid_dim=64,
-            num_refine_blocks=1
+            out_act
     ):
-        super(Decoder, self).__init__()
-        self.out_chan = out_chan
-        self.latent_dim = latent_dim
-        self.hidden_dims = hidden_dims
-        multiplier = image_res // 16
-        self.in_layer = nn.Sequential(
-            nn.Linear(latent_dim, multiplier ** 2 * hidden_dims[0], bias=False),
-            Reshape((-1, hidden_dims[0], multiplier, multiplier)),
-            nn.BatchNorm2d(hidden_dims[0]),
-            nn.ReLU(inplace=True)
-        )
-        self.mid_layers = nn.ModuleList()
-        for i in range(len(hidden_dims) - 1):
-            self.mid_layers.append(self.make_mid_layer(
-                hidden_dims[i], hidden_dims[i + 1]))
-        self.crude = nn.ConvTranspose2d(hidden_dims[-1], out_chan, 4, 2, 1)
-        self.refine_mid_dim = refine_mid_dim
-        self.num_refine_blocks = num_refine_blocks
-        self.refine = self.make_refine_layer()
+        super(Decoder, self).__init__(out_ch, base_ch, latent_dim, image_res=image_res, out_act=out_act)
+        self.reconst = UNet(out_ch, reconst_ch, image_res, out_act=out_act)
+        self.out_act = out_act
 
-    @staticmethod
-    def make_mid_layer(in_chan, out_chan):
-        return nn.Sequential(
-            nn.ConvTranspose2d(in_chan, out_chan, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(out_chan),
-            nn.ReLU(inplace=True)
-        )
+    def forward(self, x, reconst=False):
+        out = super().forward(x)
+        if reconst:
+            out = self.reconst(out)
+        return out
 
-    def make_refine_layer(self):
-        if self.num_refine_blocks == 1:
-            return ResidualBlock(
-                self.out_chan,
-                self.refine_mid_dim,
-                self.out_chan
-            )
-        else:
-            blocks = [ResidualBlock(
-                self.out_chan, self.refine_mid_dim, self.refine_mid_dim)]
-            for i in range(self.num_refine_blocks - 1):
-                out_chan = self.refine_mid_dim
-                if i == self.num_refine_blocks - 2:
-                    out_chan = self.out_chan
-                blocks.append(ResidualBlock(
-                    self.refine_mid_dim,
-                    self.refine_mid_dim,
-                    out_chan,
-                    bias=True
-                ))
-            return nn.Sequential(*blocks)
 
-    def forward(self, z):
-        x = self.in_layer(z)
-        for layer in self.mid_layers:
-            x = layer(x)
-        x = self.crude(x)
-        out_crude = torch.sigmoid(x)
-        out_refined = torch.sigmoid(self.refine(x))
-        return out_crude, out_refined
+if backbone.__name__.split(".")[-1] == "dcgan" and os.environ.get("ANTI_ARTIFACT", ""):
+    class _Decoder(Decoder):
+        @staticmethod
+        def make_layer(in_ch, out_ch):
+            return backbone.AntiArtifactDecoder.make_layer(in_ch, out_ch)
+else:
+    _Decoder = Decoder
 
 
 class VAEGAN(nn.Module):
     def __init__(
             self,
-            in_chan,
+            in_ch,
+            base_ch,
             latent_dim,
-            configs,
+            reconst_ch,
             image_res,
-            l2_reg_coef=5e-4,
-            reconst_loss=nn.MSELoss(reduction="sum")
+            out_act="tanh",
+            reconst_loss=nn.MSELoss(reduction="sum"),
+            noise_scale=0.,
+            anti_artifact=True,  # only effective when using dcgan backbone
     ):
         super(VAEGAN, self).__init__()
-        self.in_chan = in_chan
+        self.in_ch = in_ch
         self.latent_dim = latent_dim
         self.image_res = image_res
-        self.encoder = Encoder(
-            in_chan, latent_dim, image_res=image_res, **configs["Enc"])
-        self.decoder = Decoder(
-            in_chan, latent_dim, image_res=image_res, **configs["Dec"])
-        self.discriminator = Discriminator(
-            in_chan, image_res=image_res, **configs["Dis"])
-        self.l2_reg_coef = l2_reg_coef
-        self.bce_loss = nn.BCEWithLogitsLoss(reduction="sum")
+        self.encoder = backbone.Encoder(in_ch, base_ch, out_dim=2 * latent_dim, image_res=image_res)
+        out_act = {"tanh": torch.tanh, "sigmoid": torch.sigmoid}[out_act]
+        self.decoder = (_Decoder if anti_artifact else Decoder)(
+            in_ch, base_ch, latent_dim=latent_dim, reconst_ch=reconst_ch, image_res=image_res, out_act=out_act)
+        self.netD = _Encoder(in_ch, base_ch, image_res=image_res)
+        self.bce_loss = nn.BCEWithLogitsLoss(reduction="mean")
         self.reconst_loss = reconst_loss
+        self.register_buffer("noise_scale", torch.as_tensor(noise_scale))
 
-    def forward(self, x=None, component="vae"):
+    def forward(self, x, component="vae"):
+        assert component in {"vae", "netD"}
+        B = x.shape[0]
         if component == "vae":
+            ####################
+            # posterior sampling
+            ####################
             mom = self.encoder(x)
             mean, logvar = mom.chunk(2, dim=1)
-            z = self.sample_z(mean, logvar)
+            noise = self.sample_z(mean, logvar)
             kld = 0.5 * (logvar.exp() + mean.pow(2) - logvar - 1).sum()
-            x_crude, x_refined = self.decode(z)
-            reconst_loss = self.reconst_loss(x_crude, x)
-            ds = self.discriminator(x_refined)
-            gen_loss = self.bce_loss(ds, torch.ones_like(ds))
-            l2_reg = self.l2_reg()
-            return kld + reconst_loss, gen_loss, l2_reg * self.l2_reg_coef
-        elif component == "discriminator":
-            mom = self.encoder(x)
-            mean, logvar = mom.chunk(2, dim=1)
-            z = self.sample_z(mean, logvar)
-            _, x_ = self.decode(z)
+            x_ = self.decode(noise, reconst=True)
+            reconst_loss = self.reconst_loss(x_, x)
+            vae_loss = (kld + reconst_loss).div(B * self.latent_dim)
+            ################
+            # prior sampling
+            ################
+            x_ = self.sample_x(B)
+            # add instance noise
+            if self.noise_scale:
+                x_ = self.add_noise(x_)
+            ds_ = self.netD(x_)
+            gen_loss = self.bce_loss(ds_, torch.ones_like(ds_))
+            return vae_loss, gen_loss
+        elif component == "netD":
+            with torch.no_grad():
+                x_ = self.sample_x(B, reconst=False)
+            # add instance noise
+            if self.noise_scale:
+                x = self.add_noise(x)
+                x_ = self.add_noise(x_)
             # calculate the discriminator scores
-            ds = self.discriminator(x)  # real
-            ds_ = self.discriminator(x_.detach())  # fake
+            ds = self.netD(x)  # real
+            ds_ = self.netD(x_)  # fake
             dis_loss = self.bce_loss(ds, torch.ones_like(ds))
             dis_loss += self.bce_loss(ds_, torch.zeros_like(ds_))
-            return dis_loss * 0.5
+            return dis_loss
         else:
             raise NotImplementedError
 
-    def l2_reg(self):
-        l2_reg = 0
-        for p in self.decoder.refine.parameters():
-            if p.requires_grad:
-                l2_reg += p.pow(2).sum()
-        return l2_reg
+    def add_noise(self, x):
+        return x + self.noise_scale * torch.randn_like(x)
 
-    def sample_noise(self, n):
+    def sample_noise(self, n, dim):
         device = next(self.parameters()).device
-        z = torch.rand(n, self.latent_dim).to(device)
-        return z
+        return torch.randn((n, dim), device=device)
 
     def sample_z(self, mean, logvar):
-        e = torch.randn_like(mean)
-        return e * torch.exp(0.5 * logvar) + mean
+        eps = torch.randn_like(mean)
+        return eps * torch.exp(0.5 * logvar) + mean
 
-    def sample_x(self, n):
-        z = self.sample_noise(n)
-        _, x = self.decode(z)
-        return x
+    def sample_x(self, n, noise=None, reconst=False):
+        if noise is None:
+            noise = self.sample_noise(n, self.latent_dim)
+        return self.decode(noise, reconst=reconst)
 
     def encode(self, x):
-        mom = self.encoder(x)
-        return mom
+        return self.encoder(x)
 
-    def decode(self, z):
-        x_crude, x_refined = self.decoder(z)
-        return x_crude, x_refined
+    def decode(self, noise, reconst=True):
+        return self.decoder(noise, reconst=reconst)
 
     def reconst(self, x):
         mean, logvar = self.encode(x).chunk(2, dim=1)
         z = self.sample_z(mean, logvar)
-        _, x = self.decode(z)
-        return x
+        return self.decode(z, reconst=True)
 
 
-if __name__ == "__main__":
-    image_res = (32, 32)
-    n_channels = 3
+def test():
+    image_res = (64, 64)
+    in_ch = 3
+    base_ch = 64
     latent_dim = 128
-    configs = {
-        "Dec": {
-            "hidden_dims": [512, 256, 128, 64],
-            "refine_mid_dim": 128,
-            "num_refine_blocks": 1
-        },
-        "Enc": {"hidden_dims": [64, 128, 256, 512]},
-        "Dis": {"hidden_dims": [64, 128, 256, 512]}
-    }
+    reconst_ch = 64
     vaegan = VAEGAN(
-        in_chan=n_channels,
+        in_ch=in_ch,
+        base_ch=base_ch,
         latent_dim=latent_dim,
-        image_res=image_res[0],
-        configs=configs
+        reconst_ch=reconst_ch,
+        image_res=image_res[0]
     )
     print(vaegan)
-    x = torch.randn(64, 3, 32, 32)
+    x = torch.randn(64, 3, 64, 64)
     vaegan(x)
-    vaegan.sample_x(16)
+    vaegan.sample_x(64)

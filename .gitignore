@@ -4,7 +4,11 @@ figs/
 logs/
 archive/
 precomputed_stats/
+experimental
 
 __pycache__/
 .idea/
 .DS_Store
+
+recycle_bin
+figures

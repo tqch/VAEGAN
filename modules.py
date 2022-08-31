@@ -1,6 +1,8 @@
 import random
+import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class PartialBatchNorm2d(nn.Module):
@@ -96,3 +98,22 @@ class Reshape(nn.Module):
     def extra_repr(self):
         s = "{dims}"
         return s.format(**self.__dict__)
+
+
+class ResidualBlock(nn.Module):
+    def __init__(self, in_chan, out_chan, stride=1, bias=False):
+        super(ResidualBlock, self).__init__()
+        self.in_bn = nn.BatchNorm2d(in_chan)
+        self.in_conv = nn.Conv2d(in_chan, out_chan, 3, stride, 1, bias=False)
+        self.out_bn = nn.BatchNorm2d(out_chan)
+        self.out_conv = nn.Conv2d(out_chan, out_chan, 3, 1, 1, bias=bias)
+        if in_chan != out_chan or stride != 1:
+            self.skip = nn.Conv2d(in_chan, out_chan, 1, stride, 0, bias=bias)
+        else:
+            self.skip = nn.Identity()
+
+    def forward(self, x):
+        skip = self.skip(x)
+        x = self.in_conv(F.relu(self.in_bn(x), inplace=True))
+        x = self.out_conv(F.relu(self.out_bn(x), inplace=True))
+        return x + skip

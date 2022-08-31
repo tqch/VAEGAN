@@ -1,9 +1,0 @@
-{
-  "Dec": {
-    "hidden_dims": [512, 256, 128, 64],
-    "refine_mid_dim": 128,
-    "num_refine_blocks": 1
-  },
-  "Enc": {"hidden_dims": [64, 128, 256, 512]},
-  "Dis": {"hidden_dims": [64, 128, 256, 512]}
-}

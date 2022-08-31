@@ -41,7 +41,7 @@ class RunningStatistics:
     def update(self, n, **kwargs):
         self.count += n
         for k, v in kwargs.items():
-            self.stats[k] = self.stats.get(k, 0) + v
+            self.stats[k] = self.stats.get(k, 0) + v * n
 
     def extract(self):
         avg_stats = []

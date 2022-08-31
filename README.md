@@ -4,9 +4,9 @@
 
 ## Model architecture:
 
-![model architecture](assets/model_architecture.png)
-
-
+<p align="center">
+<img alt="model architecture" src="./assets/model_architecture.png" height=360 width=480>
+</p>
 
 ## Datasets
 - MNIST
@@ -20,20 +20,54 @@ Although not explicitly stated in their paper or readme doc, the original prepro
 ## Usage
 
 ```shell
-usage: train.py [-h] [--model {vae,dcgan,vaegan}] [--epochs EPOCHS] [--lr LR] [--beta1 BETA1] [--beta2 BETA2] [--batch-size BATCH_SIZE] [--dataset {mnist,cifar10,celeba}] [--root ROOT] [--task {reconstruction,generation,deblur}] [--gpus GPUS] [--latent-dim LATENT_DIM] [--fig-dir FIG_DIR] [--config-dir CONFIG_DIR] [--chkpt-dir CHKPT_DIR] [--log-dir LOG_DIR] [--seed SEED] [--restart]
+usage: train.py [-h] [--model {vaegan,vae,gan}] [--backbone {resnet,dcgan}]
+                [--out-act {sigmoid,tanh}] [--epochs EPOCHS] [--lr LR]
+                [--d-factor D_FACTOR] [--g-factor G_FACTOR] [--beta1 BETA1]
+                [--beta2 BETA2] [--dataset {mnist,cifar10,celeba}]
+                [--batch-size BATCH_SIZE] [--num-workers NUM_WORKERS]
+                [--root ROOT] [--task {reconstruction,generation,deblur}]
+                [--device DEVICE] [--eval-device EVAL_DEVICE]
+                [--base-ch BASE_CH] [--latent-dim LATENT_DIM]
+                [--reconst_ch RECONST_CH] [--instance-noise]
+                [--fig-dir FIG_DIR] [--chkpt-dir CHKPT_DIR]
+                [--log-dir LOG_DIR] [--seed SEED] [--resume] [--calc-metrics]
+                [--chkpt-intv CHKPT_INTV] [--comment COMMENT]
+                [--anti-artifact]
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --model {vaegan,vae,gan}
+  --backbone {resnet,dcgan}
+  --out-act {sigmoid,tanh}
+  --epochs EPOCHS
+  --lr LR
+  --d-factor D_FACTOR
+  --g-factor G_FACTOR
+  --beta1 BETA1
+  --beta2 BETA2
+  --dataset {mnist,cifar10,celeba}
+  --batch-size BATCH_SIZE
+  --num-workers NUM_WORKERS
+  --root ROOT
+  --task {reconstruction,generation,deblur}
+  --device DEVICE
+  --eval-device EVAL_DEVICE
+  --base-ch BASE_CH
+  --latent-dim LATENT_DIM
+  --reconst_ch RECONST_CH
+  --instance-noise
+  --fig-dir FIG_DIR
+  --chkpt-dir CHKPT_DIR
+  --log-dir LOG_DIR
+  --seed SEED
+  --resume
+  --calc-metrics
+  --chkpt-intv CHKPT_INTV
+  --comment COMMENT
+  --anti-artifact
 ```
 
 ## Examples
-
-### Reconstruction
-
-#### VAE vs VAEGAN
-
-Each 4x4 block: (from left to right) **original, VAE, VAEGAN_reconst, VAEGAN_gen**
-
-<p align="center">
-<img alt="celeba_reconst" src="assets/celeba_reconst_vae_vs_vaegan.jpg" />
-</p>
 
 ### Generation
 
@@ -53,6 +87,16 @@ Each 4x4 block: (from left to right) **original, VAE, VAEGAN_reconst, VAEGAN_gen
 
 <p align="center">
 <img alt="celeba_gan_sample" src="assets/celeba_gan.webp" />
+</p>
+
+### Reconstruction
+
+#### VAE vs VAEGAN
+
+Each 4x4 block: (from left to right) **original, VAE, VAEGAN_reconst, VAEGAN_gen**
+
+<p align="center">
+<img alt="celeba_reconst" src="assets/celeba_reconst_vae_vs_vaegan.jpg" height=600 width=600 />
 </p>
 
 

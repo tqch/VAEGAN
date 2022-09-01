@@ -15,6 +15,7 @@ if __name__ == "__main__":
     parser.add_argument("--base-ch", default=64, type=int)
     parser.add_argument("--latent-dim", default=128, type=int)
     parser.add_argument("--reconst-ch", default=64, type=int)
+    parser.add_argument("--out-act", choices={"tanh", "sigmoid"}, default="tanh", type=str)
     parser.add_argument("--device", default=0, type=int)
     parser.add_argument("--eval-device", default=0, type=int)
     parser.add_argument("--eval-batch-size", default=512, type=int)
@@ -34,7 +35,13 @@ if __name__ == "__main__":
         model_name = args.model
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
     eval_device = torch.device(f"cuda:{args.eval_device}" if torch.cuda.is_available() else "cpu")
-    istats = InceptionStatistics(device=eval_device)
+
+    out_act = args.out_act
+    if out_act == "sigmoid":
+        input_transform = lambda x: 2 * x - 1
+    else:
+        input_transform = lambda x: x
+    istats = InceptionStatistics(input_transform=input_transform, device=eval_device)
     target_mean, target_var = get_precomputed(dataset)
 
     print(f"Dataset: {dataset}")
@@ -50,14 +57,15 @@ if __name__ == "__main__":
         in_ch=in_ch,
         base_ch=base_ch,
         latent_dim=latent_dim,
-        image_res=image_res
+        image_res=image_res,
+        out_act=out_act
     )
 
     if model_name == "vaegan":
         model_configs["reconst_ch"] = reconst_ch
 
     args = parser.parse_args()
-    os.environ["BACKBONE"] = args.backbone
+    os.environ["BACKBONE"] = backbone = args.backbone
     os.environ["ANTI_ARTIFACT"] = "true" if args.anti_artifact else ""
 
     from models import MODEL_LIST
@@ -68,6 +76,8 @@ if __name__ == "__main__":
     model.eval()
 
     print(f"Model: {model_name}")
+    print(f"Backbone: {backbone}")
+    print(f"Output activation: {out_act}")
 
     chkpt = torch.load(chkpt_path, map_location=device)
     if "model" in chkpt:
@@ -88,7 +98,7 @@ if __name__ == "__main__":
             x = model.sample_x(
                 (eval_total_size % eval_batch_size or eval_batch_size)
                 if i == num_eval_batches - 1 else eval_batch_size)
-        istats(x.to(eval_device))
+            istats(x.to(eval_device))
     gen_mean, gen_var = istats.get_statistics()
     eval_fid = calc_fd(gen_mean, target_mean, gen_var, target_var)
     print(f"FID: {eval_fid}")

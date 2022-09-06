@@ -3,7 +3,7 @@ chkpts/
 figs/
 logs/
 archive/
-precomputed_stats/
+precomputed/
 experimental
 
 __pycache__/

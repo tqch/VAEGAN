@@ -150,7 +150,7 @@ PRE_COMPUTED_LIST = {
 }
 
 
-def get_precomputed(dataset, download_dir="precomputed_stats"):
+def get_precomputed(dataset, download_dir="precomputed"):
     if dataset == "celeba":
         dataset = "cropped_celeba"
     url = PRE_COMPUTED_LIST[dataset]
@@ -176,7 +176,7 @@ def get_precomputed(dataset, download_dir="precomputed_stats"):
     return mean, var
 
 
-def calc_fd(mean1, mean2, var1, var2, eps=1e-6):
+def calc_fd(mean1, var1, mean2, var2, eps=1e-6):
     return calculate_frechet_distance(mean1, var1, mean2, var2, eps)
 
 ###############################################################

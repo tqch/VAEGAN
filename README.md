@@ -67,6 +67,14 @@ optional arguments:
   --anti-artifact
 ```
 
+## Evaluation
+
+|Model|FID[^2]|Precision[^4]|Recall[^4]|
+|:---:|:---:|:---:|:---:|
+|VAE|52.988|0.768|0.000|
+|VAEGAN|42.761|0.795|0.003|
+|GAN|16.203|0.750|0.151|
+
 ## Examples
 
 ### Generation
@@ -105,4 +113,5 @@ Each 4x4 block: (from left to right) **original, VAE, VAEGAN_reconst, VAEGAN_gen
 [^1]: Liu, Ziwei, et al. "Deep learning face attributes in the wild." *Proceedings of the IEEE international conference on computer vision*. 2015.
 [^2]: Heusel, Martin, et al. "Gans trained by a two time-scale update rule converge to a local nash equilibrium." *Advances in neural information processing systems* 30 (2017).
 [^3]: as indicated by [`scipy.image.resize`](https://github.com/scipy/scipy/blob/v0.14.0/scipy/misc/pilutil.py#L391)
+[^4]: Kynkäänniemi, Tuomas, et al. "Improved precision and recall metric for assessing generative models." Advances in Neural Information Processing Systems 32 (2019).
 

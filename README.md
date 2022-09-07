@@ -65,6 +65,41 @@ optional arguments:
   --chkpt-intv CHKPT_INTV
   --comment COMMENT
   --anti-artifact
+  
+ usage: eval.py [-h] [--root ROOT] [--dataset {mnist,cifar10,celeba}]
+               [--model {gan,vae,vaegan}] [--backbone {dcgan,resnet}]
+               [--base-ch BASE_CH] [--latent-dim LATENT_DIM]
+               [--reconst-ch RECONST_CH] [--out-act {sigmoid,tanh}]
+               [--model-device MODEL_DEVICE] [--eval-device EVAL_DEVICE]
+               [--eval-batch-size EVAL_BATCH_SIZE]
+               [--eval-total-size EVAL_TOTAL_SIZE] [--nhood-size NHOOD_SIZE]
+               [--row-batch-size ROW_BATCH_SIZE]
+               [--col-batch-size COL_BATCH_SIZE] [--chkpt CHKPT]
+               [--precomputed-dir PRECOMPUTED_DIR]
+               [--metrics METRICS [METRICS ...]] [--save] [--anti-artifact]
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --root ROOT
+  --dataset {mnist,cifar10,celeba}
+  --model {gan,vae,vaegan}
+  --backbone {dcgan,resnet}
+  --base-ch BASE_CH
+  --latent-dim LATENT_DIM
+  --reconst-ch RECONST_CH
+  --out-act {sigmoid,tanh}
+  --model-device MODEL_DEVICE
+  --eval-device EVAL_DEVICE
+  --eval-batch-size EVAL_BATCH_SIZE
+  --eval-total-size EVAL_TOTAL_SIZE
+  --nhood-size NHOOD_SIZE
+  --row-batch-size ROW_BATCH_SIZE
+  --col-batch-size COL_BATCH_SIZE
+  --chkpt CHKPT
+  --precomputed-dir PRECOMPUTED_DIR
+  --metrics METRICS [METRICS ...]
+  --save
+  --anti-artifact
 ```
 
 ## Evaluation
